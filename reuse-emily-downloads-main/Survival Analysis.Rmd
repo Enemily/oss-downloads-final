@@ -1,0 +1,175 @@
+---
+title: "Survival Analysis"
+output: html_document
+---
+```{r}
+library(RMySQL)
+library(dplyr)
+library(RMySQL)
+library(knitr)
+library(DBI)
+library(zoo)
+library(broom)
+library(readr)
+library(pscl)
+library(car)
+library(Lock5Data)
+library(Lock5withR)
+library(mosaic)
+library(ggplot2)
+library(mosaicData)
+library(leaflet)
+library(dplyr)
+library(readr)
+# Packages for matching
+library(knitr)
+library(MatchIt)
+# Packages for survival modeling
+library(survival)
+library(survminer)
+library(ggfortify)
+library(ranger)
+library(utilities)
+library("survival")
+mydb = dbConnect(MySQL(), user = "emilyngu", password = "", dbname = "emily", host = "127.0.0.1")
+
+```
+
+
+```{r setup, include=FALSE}
+
+
+#this holds a list unique slugs
+setwd("/Users/emilynguyen/Desktop/data2")
+cox = read.csv("new99.csv")
+
+# create a dataframe to format our data in right format for survival modeling. the "death"/binary response outcome we're analyzing is whether the project crashed or not (there is a binary peak variable)
+coxFinal = data.frame()
+
+#traverse 200 slugs
+for(i in 1:200) {
+  #### get long-formatted, historical data on downloads, commits, versions, and issues opened/closed for a certain slug
+  s = shQuote(cox$slug[i])
+  str = paste("select * from marxist_NPMImportant120kMonthlySlugA_pydriller_NoOutlier where slug =", s)
+  npmSlugMonthlyAgg <- dbGetQuery(mydb, str)
+  
+    npmSlugMonthlyAgg$numIssuesOpened[is.na(npmSlugMonthlyAgg$numIssuesOpened)] = 0
+  npmSlugMonthlyAgg$numIssuesClosed[is.na(npmSlugMonthlyAgg$numIssuesClosed)] = 0
+  npmSlugMonthlyAgg$numIssuesOpened = as.numeric(npmSlugMonthlyAgg$numIssuesOpened)
+  npmSlugMonthlyAgg$numIssuesClosed = as.numeric(npmSlugMonthlyAgg$numIssuesClosed)
+    #### 
+  
+  npmSlugMonthlyAgg$peaked = 0
+  npmSlugMonthlyAgg$slug = s
+  npmSlugMonthlyAgg$period = 1
+  
+  #### get the index of the yearMonth the project "peaked". set that moment to 1 in the variable peaked. So everything else before that is 0. 
+  if(cox$peakIndex[i]!=-1) {
+    ind = cox$peakIndex[i]
+  }
+  npmSlugMonthlyAgg$peaked[ind] = 1
+
+  #### everything else after the moment the project peaked is discarded (we only care about the event the projcet crash, wich is currently labeled 1). afterward get rid of the rows labeled 2.
+for(k in 1:nrow(npmSlugMonthlyAgg)) {
+  if(k>ind)
+    npmSlugMonthlyAgg$peaked[k] = 2
+  npmSlugMonthlyAgg$period[k] = k
+}
+npmSlugMonthlyAgg = subset(npmSlugMonthlyAgg, npmSlugMonthlyAgg$peaked!=2)
+ ####
+
+#### discard the first rows of the project when the project had 0 downloads. cuz we assume it hasn't been alive yet
+if(sum(npmSlugMonthlyAgg$numDownloads)>0)
+{
+k = 1
+while(npmSlugMonthlyAgg$numDownloads[k]==0) {
+  npmSlugMonthlyAgg = npmSlugMonthlyAgg[-c(k),]
+}
+}
+
+### add this data to our ultimate coxFinal dataframe
+if(length(npmSlugMonthlyAgg$period)<=72 & npmSlugMonthlyAgg$period[which(npmSlugMonthlyAgg$peaked==1)] <= 72)
+    coxFinal = rbind(coxFinal, npmSlugMonthlyAgg)
+  print(i)
+}
+```
+
+
+```{r}
+coxFinal <- coxFinal %>% mutate(tstart = period-1)
+
+coxFinal <- coxFinal %>% mutate(tstop = period)
+```
+
+
+
+```{r}
+#survival model
+resLog <- coxph(Surv(tstart, tstop, peaked) ~ as.numeric(log(numDownloads+1)) + as.numeric(log(numVersions+1)) + as.numeric(log(numCommits+1)) + as.numeric(log(numIssuesOpened+1)) + as.numeric(log(numIssuesClosed+1)) ,data=coxFinal)
+
+#diagnostics
+# INTERPRETING THE MODEL:
+## HIGH LEVEL SUMMARY 
+#coef: repos with more numDownloads/numVersions will have downloads peak faster
+#      repos with more numCommits will have downloads peak slower
+#      positive coefficients: event happens faster
+#      
+#      
+#exp(coef): 1.0013:  means a unit increase in numVersions is associated with 0.13% increase in hazard rates OR  a repo with 1 more numVersions is 0.13% more likely to have downloads crash OR a 1 unit increase in versions is 1.0013x as likely to have downloads crash than a repo without increase in versions --> more numVersions means more likely to have downloads peak faster
+#exp(-coef): 0.9987: repo w/o 1 unit inc in versions is 0.9987x as likely to have downloads crash than someone w/ it
+#(1-0.993)% lower hazard rate for unit increase in commits --> more commits means less likely to have downloads peak faster
+# 25311-974 censored observations --> if they all crashed, why is there censoring?
+
+#Concordance: goodness of fit statistic 
+#             concordant:  our model predicts repo 1 crashes later than repo 2 & in reality it happened
+#             fraction of observations that are concordant
+summary(resLog)
+
+# Schoenfeld residuals - Testing proportional hazards assumption
+# Emily: Ho: HAZARDS are prop Ha: HAZARDS are NOT prop
+# In the table: All the p values should NOT be statistically signoficant
+# Emily: small p-values indicates that there are time dependent coefficients which you need to take care of
+# On the Graph: The lines should all be relatively linear, and if so then we can assume proportional hazards
+#Emily: cox model only accounts fo linear relationships
+# Emily: tests for proportionality (checks that hazard rate for each github repository is constant in time). if not, there're time dependent coefficients
+#cox.zph(res, global = FALSE)
+cox.zph(resLog, global = FALSE)
+
+#plot(cox.zph(res))
+# if we allowed coefficients/hazard ratios to change over time, what changes would we see 
+# red line falls within confidence bands most of the time, so coefficient isn't changing over time, proportional hazards assumption met
+par(mfrow=c(2,1))
+plot(cox.zph(resLog))
+abline(h=0, col = 2)
+
+# Testing Infludential Observations:
+# The graph should be approximately symmetrical around 0.
+#ggcoxdiagnostics(res, type = "deviance", linear.predictions = FALSE, ggtheme = theme_bw())
+ggcoxdiagnostics(resLog, type = "deviance", linear.predictions = FALSE, ggtheme = theme_bw())
+
+
+#PLOT SURVIVAL MODEL
+ggsurvplot(survfit(resLog), color = "deepskyblue2", ggtheme = theme_minimal(), data = coxFinal, xlab = "Months", font.x = 20, ylab = "Survival Probability", font.y = 20) + ylab("Survival Probability")
+
+# Computes the deviance for each covariant in model
+Anova(resLog)   
+
+#checking linearity using martingale residuals
+plot(predict(resLog), residuals(resLog, tpye = "martingale"), xlab = "fitted values", ylab = "Martingale residuals", main = "Resdual Plot", las = 1)
+
+#add a line ax y=residual=0
+abline(h=0)
+#try to smooth out shape of points
+#there is nonlinearity
+lines(smooth.spline(predict(resLog), residuals(resLog, type = "martingale")), col = "red")
+
+#check linearity using deviance residuals
+plot(predict(resLog), residuals(resLog, type = "deviance"))
+abline(h=0)
+lines(smooth.spline(predict(resLog), residuals(resLog, type = "deviance")), col = "red")
+#nonlinearity
+# - categorize it
+# - transforming it
+
+```
+

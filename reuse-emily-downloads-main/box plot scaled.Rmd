@@ -1,0 +1,796 @@
+---
+title: "box plot scaled"
+output: html_document
+date: '2022-06-22'
+---
+```{r}
+mydb = dbConnect(MySQL(), user = "emilyngu", password = "", dbname = "", host = "127.0.0.1")
+```
+
+
+```{r setup, include=FALSE}
+library(ggplot2)
+library(RMySQL)
+library(zoo)
+library(TTR)
+
+
+# collect slugs that crash (less than 1/2 downloads 3 years later) and save into logData dataframe
+logData = data.frame()
+for(i in 15:17) {
+  for(j in 1:12) {
+    str
+    if(j<10)
+      str = paste("0", j, sep = "")
+    else
+      str = j
+    s = paste("'20", i, "-", str, "'", sep  ="")
+    s2 = paste("'20", i+3,"-", str, "'", sep = "")
+
+    s3 =  paste("
+select a.slug, a.numDownloads as 'before',  b.numDownloads, a.numVersions, a.numCommits
+from
+( select slug, numDownloads, numVersions, numCommits
+from marxist_allNPMSlugMonthlyAggregates
+where yearMonth = ", s, "and numDownloads > 10000 and numDownloads < 25000) a,
+(select slug, numDownloads, numVersions, numCommits
+from marxist_allNPMSlugMonthlyAggregates
+where yearMonth = ", s2, ") b
+where a.slug = b.slug and a.numDownloads > b.numDownloads*2;", sep = "")
+logData = rbind(logData, dbGetQuery(mydb, s3))
+  }
+}
+
+# collect slugs that don't crash (stable downloads 3 years later) and save into data2 dataframe
+data2 = data.frame()
+for(i in 15:17) {
+  for(j in 1:12) {
+    str
+    if(j<10)
+      str = paste("0", j, sep = "")
+    else
+      str = j
+    s = paste("'20", i, "-", str, "'", sep  ="")
+    s2 = paste("'20", i+3,"-", str, "'", sep = "")
+ 
+    s3 =  paste("
+select a.slug, a.numDownloads as 'before',  b.numDownloads, a.numVersions, a.numCommits
+from
+( select slug, numDownloads, numVersions, numCommits
+from marxist_allNPMSlugMonthlyAggregates
+where yearMonth = ", s, "and numDownloads > 10000 and numDownloads < 25000) a,
+(select slug, numDownloads, numVersions, numCommits
+from marxist_allNPMSlugMonthlyAggregates
+where yearMonth = ", s2, ") b
+where a.slug = b.slug and a.numDownloads > b.numDownloads*0.7 and a.numDownloads < b.numDownloads*1.3;", sep = "")
+data2 = rbind(data2, dbGetQuery(mydb, s3))
+  }
+}
+
+# View(noCrash)
+
+knitr::opts_chunk$set(echo = TRUE)
+```
+```{r}
+##IGNORE THIS PART FOR NOW: i was just trying to find projects tha had more than 20 commits for something
+de = data.frame()
+for(i in 15:17) {
+  for(j in 1:12) {
+    str
+    if(j<10)
+      str = paste("0", j, sep = "")
+    else
+      str = j
+    s = paste("'20", i, "-", str, "'", sep  ="")
+    s2 = paste("'20", i+3,"-", str, "'", sep = "")
+
+    s3 =  paste("
+select a.slug, a.numDownloads as 'before',  b.numDownloads, a.numVersions, a.numCommits
+from
+( select slug, numDownloads, numVersions, numCommits
+from marxist_allNPMSlugMonthlyAggregates
+where yearMonth = ", s, "and numCommits > 20) a,
+(select slug, numDownloads, numVersions, numCommits
+from marxist_allNPMSlugMonthlyAggregates
+where yearMonth = ", s2, ") b
+where a.slug = b.slug and a.numDownloads > b.numDownloads*2;", sep = "")
+de = rbind(de, dbGetQuery(mydb, s3))
+  }
+}
+```
+
+
+```{r}
+##IGNORE THIS PART FOR NOW: just trying to get a dataset with 4:1 ratio of crashed : no crashed projects and one with a 1:1 ratio
+
+# cox <- dbGetQuery(mydb, "
+# select a.slug, b.numDownloads, a.numVersions, a.numCommits
+# from
+# ( select slug, numDownloads, numVersions, numCommits
+# from marxist_allNPMSlugMonthlyAggregates
+# where yearMonth = '2015-01'
+# and numDownloads > 100000) a,
+# (select slug, numDownloads, numVersions, numCommits
+# from marxist_allNPMSlugMonthlyAggregates
+# where yearMonth = '2018-01') b
+# where a.slug = b.slug and a.numDownloads > b.numDownloads*2;")
+
+coxBP = data.frame()
+for(i in 15:17) {
+  for(j in 1:12) {
+    str
+    if(j<10)
+      str = paste("0", j, sep = "")
+    else
+      str = j
+    s = paste("'20", i, "-", str, "'", sep  ="")
+    s2 = paste("'20", i+3,"-", str, "'", sep = "")
+    s3 =  paste("
+select a.slug, b.numDownloads, a.numVersions, a.numCommits
+from
+( select slug, numDownloads, numVersions, numCommits
+from marxist_allNPMSlugMonthlyAggregates
+where yearMonth = ", s, "and numDownloads > 10000 and numDownloads < 25000) a,
+(select slug, numDownloads, numVersions, numCommits
+from marxist_allNPMSlugMonthlyAggregates
+where yearMonth = ", s2, ") b
+where a.slug = b.slug and a.numDownloads > b.numDownloads*2;", sep = "")
+coxBP = rbind(coxBP, dbGetQuery(mydb, s3))
+  }
+}
+
+cox41BP = rbind(coxBP, dbGetQuery(mydb, 
+  "select numDownloads, numVersions, numCommits, slug from marxist_allNPMSlugMonthlyAggregates limit 20000"))
+
+cox11BP = rbind(coxBP, dbGetQuery(mydb, 
+  "select numDownloads, numVersions, numCommits, slug from marxist_allNPMSlugMonthlyAggregates limit 5000"))
+
+coxNoCrash = dbGetQuery(mydb, 
+  "select numDownloads, numVersions, numCommits, slug from marxist_allNPMSlugMonthlyAggregates where numDownloads > 0 limit 5000")
+#View(coxNoCrash)
+```
+
+
+## R Markdown
+
+This is an R Markdown document. Markdown is a simple formatting syntax for authoring HTML, PDF, and MS Word documents. For more details on using R Markdown see <http://rmarkdown.rstudio.com>.
+
+When you click the **Knit** button a document will be generated that includes both content as well as the output of any embedded R code chunks within the document. You can embed an R code chunk like this:
+
+```{r cars}
+#CRASHED PROJECTS - FORMAT DATA FOR BOX PLOT PLOTTING
+users = logData$slug
+users = sample(unique(users))
+
+
+  s = shQuote(users[1])
+  str = paste("select slug, yearMonth, numDownloads, numCommits, numVersions from marxist_allNPMSlugMonthlyAggregates where slug =", s)
+  crashed <- dbGetQuery(mydb, str)
+  ind = which.max(crashed$numDownloads)
+  crashed$yearMonth[ind] = 0
+    k = -1
+  for(j in (ind-1):1) {
+    crashed$yearMonth[j] = k
+    k = k-1
+  }
+  k = 1
+  for(j in (ind+1):length(crashed$numDownloads)) {
+    crashed$yearMonth[j] = k
+    k = k+1
+  }
+
+for(i in 2:100) {
+  s = shQuote(users[i])
+  str = paste("select slug, yearMonth, numDownloads, numCommits, numVersions from marxist_allNPMSlugMonthlyAggregates where slug =", s)
+   frame <- dbGetQuery(mydb, str)
+   if(nrow(frame)<1 | nrow(frame) > 70) next
+  ind = which.max(frame$numDownloads)
+  #frame$per = NA
+  frame$yearMonth[ind] = 0
+    k = -1
+    if(ind==1) {
+      for(j in 2:70) 
+        frame$yearMonth[j] = j
+    }
+    else if(ind==70) {
+      for(j in ind:1)
+        frame$yearMonth[j] = j
+    }
+    else
+    {
+  for(j in (ind-1):1) {
+    frame$yearMonth[j] = k
+    k = k-1
+  }
+  k = 1
+  for(j in (ind+1):70) {
+    frame$yearMonth[j] = k
+    k = k+1
+  }
+    }
+  #print(npmSlugMonthlyAgg)
+  crashed = rbind(crashed, frame)
+}
+
+```
+
+```{r fig.align="center", echo = FALSE,fig.width = 14, fig.height = 3}
+#CRASHED PROJECTS = SMOOTHEN DATA/GET A SLIDING WINDOW, and FORMAT DATA FOR BOX PLOT PLOTTING
+users = logData$slug
+users = sample(unique(users))
+usersNoCrash = data2$slug
+
+
+crashedSW = data.frame()
+noCrashSW = data.frame()
+for(i in 1:200) {
+s = shQuote(users[i])
+  str = paste("select slug, yearMonth, numDownloads, numCommits, numVersions from marxist_allNPMSlugMonthlyAggregates where slug =", s)
+   frame <- dbGetQuery(mydb, str)
+   if(nrow(frame)!=70) next
+
+    frame$numDownloads = SMA(frame$numDownloads, 3)
+   ind = which.max(frame$numDownloads)
+
+   m = runif(1, 1, 5000)
+   m = round(m, 0)
+
+  s = shQuote(usersNoCrash[m])
+
+  str = paste("select slug, yearMonth, numDownloads, numCommits, numVersions from marxist_allNPMSlugMonthlyAggregates where slug =", s)
+  frameNoCrash = dbGetQuery(mydb, str)
+  #print(frameNoCrash)
+  #if(length(frameNoCrash$numDownloads)>70 | length(frameNoCrash$numDownloads)<=0 | nrow(frameNoCrash)>70) next
+  if(nrow(frameNoCrash)!=70) next
+  #print(length(frameNoCrash$yearMonth))
+  # if(length(frameNoCrash$yearMonth) > 0 & nrow(frameNoCrash$yearMonth)!=70) next
+  # 
+  # if(ind<=0 | ind >70) next
+  
+  frameNoCrash$yearMonth[ind] = 0
+frame$yearMonth[ind] = 0
+
+    k = -1
+    if(ind==1) {
+      for(j in 2:70) 
+      {
+        frame$yearMonth[j] = j
+       
+         frameNoCrash$yearMonth[j] = j
+      }
+    }
+    else if(ind==70) {
+      for(j in ind:1)
+      {
+        frame$yearMonth[j] = j
+       
+         frameNoCrash$yearMonth[j] = j
+      }
+    }
+    else
+    {
+  for(j in (ind-1):1) {
+    frame$yearMonth[j] = k
+   
+     frameNoCrash$yearMonth[j] = k
+    k = k-1
+  }
+  k = 1
+  for(j in (ind+1):70) {
+    frame$yearMonth[j] = k
+   
+     frameNoCrash$yearMonth[j] = k
+    k = k+1
+  }
+    }
+
+frame = frame[-c(1, 2, 3, 70),]
+frameNoCrash = frameNoCrash[-c(1, 2, 3, 70),]
+
+crashedSW = rbind(crashedSW, frame)
+noCrashSW = rbind(noCrashSW, frameNoCrash)
+  
+}
+  #View(noCrashSW)
+ #View(crashedSW)
+    
+      # crashedSW$yearMonth = factor(crashedSW$yearMonth, levels = c(seq.int(-57, 57)))
+      # ggplot(crashedSW, aes(x = yearMonth, y = numDownloads)) + geom_boxplot(color="blue", fill="cadetblue2", alpha=0.2) +  ggtitle("CRASHED - SLIDING WINDOW") + coord_cartesian(ylim = c(0, 30000)) + xlab("Months After Date of Spike") + ylab("Repository Downloads") + theme_classic() + theme( axis.title=element_text(size=35))
+```
+
+```{r}
+#CRASHED - SLIDING WINDOW - SCALE BY LAST DATE OF NUMCOMMITS
+commits = logData$slug
+commits = sample(unique(commits))
+
+
+crashedCommits = data.frame()
+for(i in 1:200) {
+s = shQuote(users[i])
+  str = paste("select slug, yearMonth, numDownloads, numCommits, numVersions from marxist_allNPMSlugMonthlyAggregates where slug =", s)
+   frame <- dbGetQuery(mydb, str)
+   if(length(frame$numCommits)!=70) next
+
+    frame$numDownloads = SMA(frame$numDownloads, 3)
+   ind = 1
+   for(j in length(frame$numCommits):1) {
+     if(frame$numCommits[j]>0) {
+       ind = j
+       next
+     }
+   }
+
+frame$yearMonth[ind] = 0
+
+    k = -1
+    if(ind > 0 & ind==1) {
+      for(j in 2:70) 
+      {
+        frame$yearMonth[j] = j
+      }
+    }
+    else if(ind==70) {
+      for(j in ind:1)
+      {
+        frame$yearMonth[j] = j
+      }
+    }
+    else
+    {
+  for(j in (ind-1):1) {
+    frame$yearMonth[j] = k
+    k = k-1
+  }
+  k = 1
+  for(j in (ind+1):70) {
+    frame$yearMonth[j] = k
+    k = k+1
+  }
+    }
+
+frame = frame[-c(1, 2, 3, 70),]
+
+crashedCommits = rbind(crashedCommits, frame)
+  
+}
+```
+
+```{r}
+#NO CRASHED - SLIDING WINDOW - SCALE BY LAST DATE OF NUMCOMMITS
+aliveUsers = data2$slug
+aliveUsers = sample(unique(aliveUsers))
+
+
+noCrashedCommits = data.frame()
+for(i in 1:200) {
+s = shQuote(users[i])
+  str = paste("select slug, yearMonth, numDownloads, numCommits, numVersions from marxist_allNPMSlugMonthlyAggregates where slug =", s)
+   frame <- dbGetQuery(mydb, str)
+   if(length(frame$numCommits)!=70) next
+
+    frame$numDownloads = SMA(frame$numDownloads, 3)
+   ind = 1
+   for(j in length(frame$numCommits):1) {
+     if(frame$numCommits[j]>0) {
+       ind = j
+       next
+     }
+   }
+
+frame$yearMonth[ind] = 0
+
+    k = -1
+    if(ind > 0 & ind==1) {
+      for(j in 2:70) 
+      {
+        frame$yearMonth[j] = j
+      }
+    }
+    else if(ind==70) {
+      for(j in ind:1)
+      {
+        frame$yearMonth[j] = j
+      }
+    }
+    else
+    {
+  for(j in (ind-1):1) {
+    frame$yearMonth[j] = k
+    k = k-1
+  }
+  k = 1
+  for(j in (ind+1):70) {
+    frame$yearMonth[j] = k
+    k = k+1
+  }
+    }
+
+frame = frame[-c(1, 2, 3, 70),]
+
+noCrashedCommits = rbind(noCrashedCommits, frame)
+  
+}
+```
+
+
+```{r fig.align="center", echo = FALSE,fig.width = 14}
+#CRASHED = SLIDING WINDOW , but this time PROPORTIONS / measuring the fractions 
+users = logData$slug
+users = sample(unique(users))
+
+
+s = shQuote(users[1])
+  str = paste("select slug, yearMonth, numDownloads, numCommits, numVersions from marxist_allNPMSlugMonthlyAggregates where slug =", s)
+   finalProp <- dbGetQuery(mydb, str)
+   if(nrow(finalProp)>=1 & nrow(finalProp) <= 70) 
+{
+   finalProp$numDownloads = SMA(finalProp$numDownloads, 3)
+  ind = which.max(finalProp$numDownloads)
+
+  finalProp$yearMonth[ind] = 0
+    k = -1
+
+  for(j in (ind-1):1) {
+    finalProp$yearMonth[j] = k
+    k = k-1
+    finalProp$numDownloads[j] = finalProp$numDownloads[j]/finalProp$numDownloads[ind]
+
+  }
+  k = 1
+  for(j in (ind+1):70) {
+    finalProp$yearMonth[j] = k
+    k = k+1
+    finalProp$numDownloads[j] = finalProp$numDownloads[j]/finalProp$numDownloads[ind]
+  }
+  finalProp$numDownloads[ind] = 1
+   }
+finalProp = finalProp[-c(1, 2, 3, 70),]
+    #View(finalProp)
+
+for(i in 2:200) {
+s = shQuote(users[i])
+  str = paste("select slug, yearMonth, numDownloads, numCommits, numVersions from marxist_allNPMSlugMonthlyAggregates where slug =", s)
+   frame <- dbGetQuery(mydb, str)
+   if(nrow(frame)<1 | nrow(frame) > 70) next
+
+   frame$numDownloads = SMA(frame$numDownloads, 3)
+  ind = which.max(frame$numDownloads)
+
+  frame$yearMonth[ind] = 0
+    k = -1
+    if(ind==1) {
+      for(j in 2:70) 
+      {
+        frame$yearMonth[j] = j
+        frame$numDownloads[j] = frame$numDownloads[j]/frame$numDownloads[ind]
+      }
+    }
+    else if(ind==70) {
+      for(j in ind:1)
+      {
+        frame$yearMonth[j] = j
+        frame$numDownloads[j] = frame$numDownloads[j]/frame$numDownloads[ind]
+      }
+    }
+    else
+    {
+  for(j in (ind-1):1) {
+    frame$yearMonth[j] = k
+    k = k-1
+    frame$numDownloads[j] = frame$numDownloads[j]/frame$numDownloads[ind]
+  }
+  k = 1
+  for(j in (ind+1):70) {
+    frame$yearMonth[j] = k
+    k = k+1
+    frame$numDownloads[j] = frame$numDownloads[j]/frame$numDownloads[ind]
+  }
+    }
+    
+ frame$numDownloads[ind] = 1
+ frame = frame[-c(1, 2, 3, 70),]
+
+  finalProp = rbind(finalProp, frame)
+}
+ #View(finalProp)
+   # finalProp$yearMonth = factor(finalProp$yearMonth, levels = c(seq.int(-70, 70)))
+   #   ggplot(finalProp, aes(x = yearMonth, y = numDownloads)) + geom_boxplot() +  ggtitle("CRASHED - PROPORTIONS") + coord_cartesian(ylim = c(0, 1)) 
+```
+
+
+## Including Plots
+```{r}
+#DIDN'T CRASH
+users = data2$slug
+users = sample(unique(users))
+
+  s = shQuote(users[1])
+  str = paste("select slug, yearMonth, numDownloads, numCommits, numVersions from marxist_allNPMSlugMonthlyAggregates where slug =", s)
+  noCrash <- dbGetQuery(mydb, str)
+  if(nrow(noCrash)<1 | nrow(noCrash) > 70) next
+
+   noCrash$numDownloads = SMA(noCrash$numDownloads, 3)
+  ind = which.max(noCrash$numDownloads)
+
+  noCrash$yearMonth[ind] = 0
+    k = -1
+  for(j in (ind-1):1) {
+    noCrash$yearMonth[j] = k
+    if(j==1) next
+    k = k-1
+  }
+  k = 1
+  for(j in (ind+1):(length(noCrash$numDownloads)-1)) {
+    noCrash$yearMonth[j] = k
+    k = k+1
+  }
+noCrash = noCrash[-c(1, 2, 3,  70),]
+
+for(i in 2:200) {
+  s = shQuote(users[i])
+  str = paste("select slug, yearMonth, numDownloads, numCommits, numVersions from marxist_allNPMSlugMonthlyAggregates where slug =", s)
+   frame <- dbGetQuery(mydb, str)
+   if(nrow(frame)<1 | nrow(frame) > 70) next
+   frame$numDownloads = SMA(frame$numDownloads, 3)
+  ind = which.max(frame$numDownloads)
+  #frame$per = NA
+  frame$yearMonth[ind] = 0
+    k = -1
+    if(ind==1) {
+      for(j in 2:69) 
+        frame$yearMonth[j] = j
+    }
+    else if(ind==70) {
+      for(j in (ind-1):1)
+        frame$yearMonth[j] = j
+    }
+    else
+    {
+  for(j in (ind-1):1) {
+    frame$yearMonth[j] = k
+    k = k-1
+    if(j==1) next
+  }
+  k = 1
+  for(j in (ind+1):69) {
+    frame$yearMonth[j] = k
+    k = k+1
+  }
+    }
+  #print(npmSlugMonthlyAgg)
+    
+    frame = frame[-c(1, 2, 3, 70),]
+  noCrash = rbind(noCrash, frame)
+}
+#View(noCrash)
+```
+
+
+
+```{r}
+# 1:1 DIDN'T CRASH:CRASHED = SLIDING WINDOW
+mydb = dbConnect(MySQL(), user = "emilyngu", password = "", dbname = "emily", host = "127.0.0.1")
+library(RMySQL)
+setwd("/Users/emilynguyen/Desktop/data")
+data = read.csv("result.csv")
+users = data$slug
+users = sample(unique(users))
+
+
+fr = data.frame()
+for(i in 1:200) {
+s = shQuote(users[i])
+  str = paste("select * from marxist_allNPMSlugMonthlyAggregates where slug =", s)
+   frame <- dbGetQuery(mydb, str)
+   if(nrow(frame)<1 | nrow(frame) > 70) next
+
+   frame$numCommits = SMA(frame$numCommits, 3)
+  ind = which.max(frame$numDownloads[data$peakIndex[i]])
+
+  frame$yearMonth[ind] = 0
+    k = -1
+    if(ind==1) {
+      for(j in 2:70) 
+        frame$yearMonth[j] = j
+    }
+    else if(ind==70) {
+      for(j in ind:1)
+        frame$yearMonth[j] = j
+    }
+    else
+    {
+  for(j in (ind-1):1) {
+    frame$yearMonth[j] = k
+    k = k-1
+  }
+  k = 1
+  for(j in (ind+1):70) {
+    frame$yearMonth[j] = k
+    k = k+1
+  }
+    }
+
+frame = frame[-c(1, 2, 3, 70),]
+  crashed11 = rbind(crashed11, frame)
+}
+  
+ View(crashed11)
+    
+     # crashed11$yearMonth = factor(crashed11$yearMonth, levels = c(seq.int(-70, 70)))
+     # ggplot(crashed11, aes(x = yearMonth, y = numDownloads)) + geom_boxplot() +  ggtitle("CRASHED - SLIDING WINDOW") #+ coord_cartesian(ylim = c(0, 35000))
+```
+
+```{r fig.align="center", echo = FALSE,fig.width = 13, fig.height = 4}
+#box plot: for projects whose last commit is in 2020-01, look at a box plot distribution of their number of downloads for each month between 2020-01 to 2020-12
+
+
+library(RMySQL)
+library(knitr)
+library(DBI)
+library(zoo)
+library(broom)
+library(readr)
+library(pscl)
+library(car)
+library(Lock5Data)
+library(Lock5withR)
+library(mosaic)
+library(ggplot2)
+library(mosaicData)
+library(leaflet)
+library(dplyr)
+library(readr)
+library("lattice")
+library("scales")
+library(tidyverse)
+theme_set(theme_bw(16))
+bwplot(rpois(1000, 5))
+# Packages for matching
+library(knitr)
+library(MatchIt)
+mydb = dbConnect(MySQL(), user = "emilyngu", password = "", dbname = "courtney", host = "127.0.0.1")
+setwd("/Users/emilynguyen/Desktop")
+random = read.csv("randomCommits>20.csv")
+
+
+# random = dbGetQuery(mydb, 
+#   "select numDownloads, numVersions, numCommits, slug from marxist_allNPMSlugMonthlyAggregates where numCommits > 20 limit 100000")
+users = random$slug
+users = sample(unique(users))
+dec = data.frame()
+decSample = data.frame()
+
+for(i in 1:length(users)) {
+  s = shQuote(users[i])
+  str = paste("select slug, yearMonth, numDownloads, numCommits, numVersions from marxist_allNPMSlugMonthlyAggregates where slug =", s)
+  npmSlugMonthlyAgg <- dbGetQuery(mydb, str)
+
+  if(length(npmSlugMonthlyAgg$numDownloads)!=70) next
+  
+      date = "2015-01"
+  ind = 1
+   for(j in length(npmSlugMonthlyAgg$numCommits):1) {
+     if(npmSlugMonthlyAgg$numCommits[j]>0) {
+       date = npmSlugMonthlyAgg$yearMonth[j]
+       ind = j
+       next
+     }
+   }
+slug = c(s)
+lastCommit = date
+totalDownloads = npmSlugMonthlyAgg$numDownloads[ind]
+d = data.frame(slug, lastCommit, totalDownloads)
+dec = rbind(dec, d)
+}
+
+for(i in 1:10000) {
+  s = shQuote(users[i])
+  str = paste("select slug, yearMonth, numDownloads, numCommits, numVersions from marxist_allNPMSlugMonthlyAggregates where slug =", s)
+  npmSlugMonthlyAgg <- dbGetQuery(mydb, str)
+
+  if(length(npmSlugMonthlyAgg$numDownloads)!=70) next
+  
+      date = "2015-01"
+  ind = 1
+   for(j in length(npmSlugMonthlyAgg$numCommits):1) {
+     if(npmSlugMonthlyAgg$numCommits[j]>0) {
+       date = npmSlugMonthlyAgg$yearMonth[j]
+       ind = j
+       next
+     }
+   }
+slug = c(s)
+lastCommit = date
+s = which(npmSlugMonthlyAgg$yearMonth == "2020-12")
+totalDownloads = npmSlugMonthlyAgg$numDownloads[s]
+d = data.frame(slug, lastCommit, totalDownloads)
+decSample = rbind(decSample, d)
+}
+
+dec %>%
+  ggplot(aes(lastCommit, totalDownloads)) + geom_point(alpha = 0.2) + geom_boxplot() +theme(axis.text.x = element_text(angle = 90))  + coord_cartesian(ylim = c(0, 1500)) + xlab("Date of Last Commit") + ylab("Total Downloads in 2020-12") + ggtitle("All projects")
+
+decSample %>%
+  ggplot(aes(lastCommit, totalDownloads)) + geom_point(alpha = 0.2) + geom_boxplot(outlier.shape = NA) + theme(axis.text.x = element_text(angle = 90))  + coord_cartesian(ylim = c(0, 4500)) + xlab("Date of Last Commit") + ylab("Total Downloads in 2020-12") + ggtitle("Sample of 1000 projects")
+
+
+```
+
+
+```{r}
+##IGNORE THIS FOR NOW - just some testing
+december = logData$slug
+december = sample(unique(users))
+december[2]
+# rbind december data
+# rbind month(1-70) of last commits
+# x = month
+
+
+frame <- dbGetQuery(mydb, "select slug, yearMonth, numDownloads, numCommits, numVersions from marxist_allNPMSlugMonthlyAggregates where slug ='termi/StringAlter'")
+
+  ind = 1
+   for(j in length(frame$numCommits):1) {
+     if(frame$numCommits[j]>0) {
+       ind = j
+       next
+     }
+   }
+slug = c("'termi/StringAlter'")
+lastCommit = ind
+dec = data.frame(slug, lastCommit)
+#print(dec)
+
+
+for(i in 2:length(december)) {
+s = shQuote(december[i])
+  str = paste("select slug, yearMonth, numDownloads, numCommits, numVersions from marxist_allNPMSlugMonthlyAggregates where slug =", s)
+   frame <- dbGetQuery(mydb, str)
+   
+    if(length(frame$slug)!=70) next
+   
+    ind = 1
+   for(j in length(frame$numCommits):1) {
+     if(frame$numCommits[j]>0) {
+       ind = j
+       next
+     }
+   }
+    slug = c(s)
+   lastCommit = ind
+   dec = rbind(dec, data.frame(slug, lastCommit))
+}
+#print(dec)
+
+ggplot(dec, aes(x=lastCommit)) + geom_histogram(color = "black", fill="white")
+```
+
+
+You can also embed plots, for example:
+
+```{r fig.align="center", echo = FALSE,fig.width = 13, fig.height = 4}
+#PLOT THE BOX-PLOT TIME SERIES FOR ALL DATA FRAMES COLLECTED
+crashed$yearMonth = factor(crashed$yearMonth, levels = c(seq.int(-40, 40)))
+noCrash$yearMonth = factor(noCrash$yearMonth, levels = c(seq.int(-40, 40)))
+crashedSW$yearMonth = factor(crashedSW$yearMonth, levels = c(seq.int(-65, 65)))
+finalProp$yearMonth = factor(finalProp$yearMonth, levels = c(seq.int(-65,65)))
+noCrashSW$yearMonth = factor(noCrashSW$yearMonth, levels = c(seq.int(-65, 65)))
+crashedCommits$yearMonth = factor(crashedCommits$yearMonth, levels = c(seq.int(-65, 65)))
+noCrashedCommits$yearMonth = factor(noCrashedCommits$yearMonth, levels = c(seq.int(-65, 65)))
+
+ggplot(crashed, aes(x = yearMonth, y = numDownloads)) + geom_boxplot() + coord_cartesian(ylim = c(0, 60000)) + ggtitle("CRASHED")
+
+ggplot(noCrash, aes(x = yearMonth, y = numDownloads)) + geom_boxplot() + coord_cartesian(ylim = c(0, 150000)) + ggtitle("DID NOT CRASH")
+
+ggplot(finalProp, aes(x = yearMonth, y = numDownloads)) + geom_boxplot() +  ggtitle("CRASHED - PROPORTIONS") + coord_cartesian(ylim = c(0, 1.5))
+
+ggplot(noCrashSW, aes(x = yearMonth, y = numDownloads)) + geom_boxplot() +  ggtitle("DID NOT CRASH - SLIDING WINDOW")+ coord_cartesian(ylim = c(0, 55000))
+ggplot(crashedSW, aes(x = yearMonth, y = numDownloads)) + geom_boxplot() +  ggtitle("CRASHED - SLIDING WINDOW") + coord_cartesian(ylim = c(0, 55000))
+
+ggplot(crashedCommits, aes(x = yearMonth, y = numDownloads)) + geom_boxplot() + coord_cartesian(ylim = c(0, 35000)) + ggtitle("Projects that died") + xlab("Months after Date of Last Commit (at 0) ") +theme(axis.text.x = element_text(angle = 90))  
+ggplot(noCrashedCommits, aes(x = yearMonth, y = numDownloads)) + geom_boxplot() + coord_cartesian(ylim = c(0, 35000)) + ggtitle("Projects that didn't die") + xlab("Months after Date of Last Commit (at 0)")+theme(axis.text.x = element_text(angle = 90)) 
+
+
+```
+
+Note that the `echo = FALSE` parameter was added to the code chunk to prevent printing of the R code that generated the plot.

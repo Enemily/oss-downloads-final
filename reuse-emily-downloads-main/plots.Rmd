@@ -1,0 +1,33 @@
+
+```{r}
+library(ggplot2)
+library(ggpubr)
+library(RMySQL)
+mydb = dbConnect(MySQL(), user = "emilyngu", password = "", dbname = "emily", host = "127.0.0.1")
+setwd("/Users/emilynguyen/Desktop")
+
+#random list of slugs
+data = read.csv("random100Ordered.csv")
+
+#traverse through 50 slugs
+for(i in 1:50) {
+
+  ######run query to get long historical data of downloads and commits for each slug
+  s = shQuote(data$slug[i])
+  str = paste("select distinct(slug), yearMonth, numDownloads, numCommitsWithDups from marxist_NPMImportant120kMonthlySlugA_pydriller_NoOutlier where slug =", s)
+  npm <- dbGetQuery(mydb, str)
+  if(nrow(npm)>=75) {
+    npm = npm[which(npm$slug == npm$slug[1]),]
+  }
+  ######
+  
+  print(data$slug[i])
+  
+  #plot downloads over time
+  print(ggplot(data = npm, mapping = aes(x = yearMonth, y = numDownloads, group = 1))+ geom_smooth(method = "loess") + geom_line() + geom_point() + xlab("Date") + ylab("Number of Downloads") + ggtitle(s) + theme(axis.text.x = element_text(angle = 90)))
+
+  #plot commits over time
+  print(ggplot(data = npm, mapping = aes(x = yearMonth, y = numCommitsWithDups, group = 1))+ geom_smooth(method = "loess") + geom_line() + geom_point() + xlab("Date") + ylab("Number of Commits") + ggtitle(s) + theme(axis.text.x = element_text(angle = 90)))
+}
+
+```
